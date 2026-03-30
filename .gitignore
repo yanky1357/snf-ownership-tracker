@@ -1,0 +1,7 @@
+SNF_All_Owners_*.csv
+*.db-shm
+*.db-wal
+__pycache__/
+*.pyc
+.env
+.DS_Store
