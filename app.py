@@ -911,6 +911,94 @@ def financials(enrollment_id):
         con.close()
 
 
+# ── Census endpoints ──────────────────────────────────────────────────────────
+
+@app.route("/api/census/<path:enrollment_id>")
+def census_monthly(enrollment_id):
+    con = get_db()
+    try:
+        ccn_row = con.execute(
+            "SELECT ccn FROM facility_ccn_map WHERE enrollment_id = ? LIMIT 1",
+            [enrollment_id]).fetchone()
+        if not ccn_row:
+            return jsonify({"available": False})
+        ccn = ccn_row["ccn"]
+
+        months = con.execute("""
+            SELECT month, avg_census, min_census, max_census, days_reported
+            FROM monthly_census WHERE ccn = ? ORDER BY month
+        """, [ccn]).fetchall()
+        if not months:
+            return jsonify({"available": False})
+
+        bed_row = con.execute(
+            "SELECT num_beds, avg_daily_census FROM ratings WHERE ccn = ?",
+            [ccn]).fetchone()
+        num_beds = bed_row["num_beds"] if bed_row and bed_row["num_beds"] else None
+
+        payer = con.execute(
+            "SELECT total_days, medicare_days, medicaid_days, other_days FROM cost_reports WHERE ccn = ?",
+            [ccn]).fetchone()
+        payer_mix = None
+        if payer and payer["total_days"] and payer["total_days"] > 0:
+            total = payer["total_days"]
+            payer_mix = {
+                "medicare_pct": round((payer["medicare_days"] or 0) * 100 / total, 1),
+                "medicaid_pct": round((payer["medicaid_days"] or 0) * 100 / total, 1),
+                "other_pct":    round((payer["other_days"]    or 0) * 100 / total, 1),
+            }
+
+        overall_avg = sum(m["avg_census"] for m in months) / len(months)
+        occupancy = round(overall_avg * 100 / num_beds, 1) if num_beds else None
+
+        return jsonify({
+            "available": True,
+            "ccn": ccn,
+            "num_beds": num_beds,
+            "avg_census": round(overall_avg, 1),
+            "occupancy_pct": occupancy,
+            "payer_mix": payer_mix,
+            "monthly": [
+                {"month": m["month"], "avg_census": m["avg_census"],
+                 "min": m["min_census"], "max": m["max_census"],
+                 "days": m["days_reported"]}
+                for m in months
+            ]
+        })
+    finally:
+        con.close()
+
+
+@app.route("/api/census/<path:enrollment_id>/daily")
+def census_daily(enrollment_id):
+    con = get_db()
+    try:
+        month = request.args.get("month", "")
+        ccn_row = con.execute(
+            "SELECT ccn FROM facility_ccn_map WHERE enrollment_id = ? LIMIT 1",
+            [enrollment_id]).fetchone()
+        if not ccn_row:
+            return jsonify({"available": False})
+        ccn = ccn_row["ccn"]
+
+        rows = con.execute("""
+            SELECT work_date, census FROM daily_census
+            WHERE ccn = ? AND work_date LIKE ?
+            ORDER BY work_date
+        """, [ccn, month + '%']).fetchall()
+
+        if not rows:
+            return jsonify({"available": False, "month": month})
+
+        return jsonify({
+            "available": True,
+            "month": month,
+            "days": [{"date": r["work_date"], "census": r["census"]} for r in rows]
+        })
+    finally:
+        con.close()
+
+
 # ── Startup ────────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":

@@ -223,6 +223,24 @@
     .fin-summary { font-size: .82rem; color: #475569; background: #f8fafc; border-radius: 8px; padding: .7rem .9rem; border-left: 3px solid #6366f1; line-height: 1.55; margin-top: .85rem; }
     @media (max-width: 500px) { .fin-grid { grid-template-columns: 1fr 1fr; } }
 
+    /* Census card */
+    .census-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .75rem; margin-bottom: 1rem; }
+    .census-chart { display: flex; align-items: flex-end; gap: 6px; height: 110px; margin-bottom: .6rem; }
+    .census-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
+    .census-bar { width: 100%; border-radius: 6px 6px 2px 2px; transition: height .4s ease; cursor: pointer; position: relative; }
+    .census-bar:hover { opacity: .85; }
+    .census-bar-val { font-size: .65rem; font-weight: 700; color: #1e293b; }
+    .census-bar-lbl { font-size: .62rem; color: #94a3b8; font-weight: 600; }
+    .census-month-tabs { display: flex; gap: 6px; margin-bottom: .75rem; }
+    .census-month-tab { padding: 4px 12px; border-radius: 8px; font-size: .72rem; font-weight: 600; border: 1px solid #e2e8f0; background: #fff; color: #475569; cursor: pointer; transition: all .2s; }
+    .census-month-tab.active { background: #007AFF; color: #fff; border-color: #007AFF; }
+    .census-daily-chart { display: flex; align-items: flex-end; gap: 2px; height: 90px; margin-bottom: .4rem; overflow-x: auto; }
+    .census-daily-bar { min-width: 8px; flex: 1; border-radius: 3px 3px 1px 1px; background: #007AFF; transition: height .3s; cursor: pointer; position: relative; }
+    .census-daily-bar:hover { background: #0056CC; }
+    .census-daily-bar:hover::after { content: attr(data-tip); position: absolute; bottom: calc(100% + 4px); left: 50%; transform: translateX(-50%); background: #1e293b; color: #fff; font-size: .65rem; padding: 2px 6px; border-radius: 4px; white-space: nowrap; z-index: 10; }
+    .census-range { font-size: .72rem; color: #94a3b8; display: flex; justify-content: space-between; }
+    @media (max-width: 500px) { .census-stats { grid-template-columns: 1fr 1fr; } }
+
     /* Inspection cycle cards */
     .cycle-card { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: .85rem 1rem; }
     .cycle-lbl { font-size: .68rem; font-weight: 700; text-transform: uppercase; letter-spacing: .06em; color: #94a3b8; margin-bottom: .35rem; }
@@ -360,6 +378,12 @@
         <div class="card" id="financials-card" style="display:none">
           <div class="card-title">Financial Performance <span id="financials-year" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:.75rem;color:#94a3b8"></span></div>
           <div id="financials-content"></div>
+        </div>
+
+        <!-- Census & Occupancy card -->
+        <div class="card" id="census-card" style="display:none">
+          <div class="card-title">Census & Occupancy <span id="census-period" style="font-weight:400;text-transform:none;letter-spacing:0;font-size:.75rem;color:#94a3b8"></span></div>
+          <div id="census-content"></div>
         </div>
 
         <!-- Ownership chain preview -->
@@ -699,6 +723,9 @@ function render(data){
   // ── Financials card ────────────────────────────────────────────────
   loadFinancials(f.enrollment_id);
 
+  // ── Census card ───────────────────────────────────────────────────
+  loadCensus(f.enrollment_id);
+
   // ── Chain report card ──────────────────────────────────────────────
   if(f.chain_id && f.chain_name) loadChainReport(f.chain_id, f.chain_name);
 
@@ -793,6 +820,150 @@ function renderFinancials(d) {
 
   content.innerHTML = html;
   card.style.display = 'block';
+}
+
+// ── Census & Occupancy ──────────────────────────────────────────────
+let _censusData = null;
+let _censusEid = null;
+
+async function loadCensus(enrollmentId) {
+  try {
+    _censusEid = enrollmentId;
+    const res = await fetch('/api/census/' + encodeURIComponent(enrollmentId));
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!d.available) return;
+    _censusData = d;
+    renderCensus(d);
+  } catch(e) {}
+}
+
+function renderCensus(d) {
+  const card = document.getElementById('census-card');
+  const content = document.getElementById('census-content');
+  const period = document.getElementById('census-period');
+
+  // Period label
+  const months = d.monthly;
+  if (months.length > 0) {
+    const fmt = m => { const [y,mo] = m.split('-'); const names=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return names[+mo]+' '+y; };
+    period.textContent = fmt(months[0].month) + ' – ' + fmt(months[months.length-1].month);
+  }
+
+  let html = '';
+
+  // Stats row
+  html += '<div class="census-stats">';
+  html += '<div class="fin-box"><div class="fin-box-lbl">Avg Daily Census</div><div class="fin-box-val">' + d.avg_census + '</div></div>';
+  html += '<div class="fin-box"><div class="fin-box-lbl">Licensed Beds</div><div class="fin-box-val">' + (d.num_beds ? Math.round(d.num_beds) : '–') + '</div></div>';
+  html += '<div class="fin-box"><div class="fin-box-lbl">Occupancy</div><div class="fin-box-val' + (d.occupancy_pct && d.occupancy_pct < 70 ? ' red' : '') + '">' + (d.occupancy_pct ? d.occupancy_pct + '%' : '–') + '</div></div>';
+  html += '</div>';
+
+  // Monthly bar chart
+  const maxCensus = Math.max(...months.map(m => m.max || m.avg_census));
+  html += '<div class="fin-payer-label">Monthly Census Trend</div>';
+  html += '<div class="census-chart">';
+  const monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  months.forEach(m => {
+    const pct = maxCensus > 0 ? (m.avg_census / maxCensus * 100) : 0;
+    const [y, mo] = m.month.split('-');
+    const label = monthNames[+mo];
+    const occPct = d.num_beds ? Math.round(m.avg_census * 100 / d.num_beds) : null;
+    const color = occPct !== null ? (occPct >= 85 ? '#16a34a' : occPct >= 70 ? '#f59e0b' : '#ef4444') : '#007AFF';
+    html += '<div class="census-bar-wrap" onclick="loadDailyModal(\'' + m.month + '\')">';
+    html += '<div class="census-bar-val">' + m.avg_census + '</div>';
+    html += '<div class="census-bar" style="height:' + Math.max(pct, 8) + '%;background:' + color + '" title="' + label + ': avg ' + m.avg_census + ', range ' + m.min + '–' + m.max + '"></div>';
+    html += '<div class="census-bar-lbl">' + label + '</div>';
+    html += '</div>';
+  });
+  html += '</div>';
+  html += '<div style="font-size:.68rem;color:#94a3b8;margin-bottom:1rem">Click a month to see daily detail</div>';
+
+  // Payer mix (if available)
+  if (d.payer_mix) {
+    const pm = d.payer_mix;
+    html += '<div class="fin-payer-label">Payer Mix (from Cost Reports)</div>';
+    html += '<div class="fin-payer-bar">';
+    if (pm.medicare_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.medicare_pct + '%;background:#6366f1">' + (pm.medicare_pct > 8 ? pm.medicare_pct + '%' : '') + '</div>';
+    if (pm.medicaid_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.medicaid_pct + '%;background:#0ea5e9">' + (pm.medicaid_pct > 8 ? pm.medicaid_pct + '%' : '') + '</div>';
+    if (pm.other_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.other_pct + '%;background:#10b981">' + (pm.other_pct > 8 ? pm.other_pct + '%' : '') + '</div>';
+    html += '</div>';
+    html += '<div class="fin-payer-legend">';
+    html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#6366f1"></div>Medicare ' + pm.medicare_pct + '%</div>';
+    html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#0ea5e9"></div>Medicaid ' + pm.medicaid_pct + '%</div>';
+    html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#10b981"></div>Private/Other ' + pm.other_pct + '%</div>';
+    html += '</div>';
+  }
+
+  content.innerHTML = html;
+  card.style.display = 'block';
+}
+
+async function loadDailyModal(month) {
+  if (!_censusEid) return;
+  try {
+    const res = await fetch('/api/census/' + encodeURIComponent(_censusEid) + '/daily?month=' + month);
+    if (!res.ok) return;
+    const d = await res.json();
+    if (!d.available || !d.days.length) return;
+
+    const monthNames = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+    const [year, mo] = month.split('-');
+    const title = monthNames[+mo] + ' ' + year + ' — Daily Census';
+
+    // Month tabs
+    let html = '<div class="census-month-tabs">';
+    if (_censusData && _censusData.monthly) {
+      const shortNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      _censusData.monthly.forEach(m => {
+        const [, mmo] = m.month.split('-');
+        const active = m.month === month ? ' active' : '';
+        html += '<button class="census-month-tab' + active + '" onclick="loadDailyModal(\'' + m.month + '\')">' + shortNames[+mmo] + '</button>';
+      });
+    }
+    html += '</div>';
+
+    // Daily chart
+    const days = d.days;
+    const maxC = Math.max(...days.map(x => x.census));
+    const minC = Math.min(...days.map(x => x.census));
+    const beds = _censusData ? _censusData.num_beds : null;
+
+    html += '<div class="census-daily-chart">';
+    days.forEach(day => {
+      const pct = maxC > 0 ? (day.census / maxC * 100) : 0;
+      const dt = new Date(day.date + 'T00:00:00');
+      const dayNum = dt.getDate();
+      const occ = beds ? Math.round(day.census * 100 / beds) + '% occ' : '';
+      html += '<div class="census-daily-bar" style="height:' + Math.max(pct, 5) + '%" data-tip="' + dayNum + ': ' + day.census + ' residents' + (occ ? ' (' + occ + ')' : '') + '"></div>';
+    });
+    html += '</div>';
+
+    // Range info
+    const avg = Math.round(days.reduce((s, x) => s + x.census, 0) / days.length);
+    html += '<div class="census-range"><span>Low: ' + minC + '</span><span>Avg: ' + avg + '</span><span>High: ' + maxC + '</span></div>';
+
+    // Payer estimate
+    if (_censusData && _censusData.payer_mix) {
+      const pm = _censusData.payer_mix;
+      const estMedicare = Math.round(avg * pm.medicare_pct / 100);
+      const estMedicaid = Math.round(avg * pm.medicaid_pct / 100);
+      const estOther = avg - estMedicare - estMedicaid;
+      html += '<div class="fin-summary" style="margin-top:1rem">';
+      html += '<strong>Estimated daily payer breakdown</strong> (based on annual cost report mix)<br>';
+      html += 'Medicare: ~' + estMedicare + ' residents (' + pm.medicare_pct + '%) · ';
+      html += 'Medicaid: ~' + estMedicaid + ' residents (' + pm.medicaid_pct + '%) · ';
+      html += 'Private/Other: ~' + estOther + ' residents (' + pm.other_pct + '%)';
+      html += '</div>';
+    }
+
+    // Occupancy note
+    if (beds) {
+      html += '<div style="font-size:.72rem;color:#94a3b8;margin-top:.75rem">Licensed beds: ' + Math.round(beds) + ' · Occupancy range: ' + Math.round(minC*100/beds) + '%–' + Math.round(maxC*100/beds) + '%</div>';
+    }
+
+    openModal(title, html, _facilityName);
+  } catch(e) { console.error('Daily census error', e); }
 }
 
 // ── Chain report ───────────────────────────────────────────────────
