@@ -225,14 +225,18 @@
 
     /* Census card */
     .census-stats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .75rem; margin-bottom: 1rem; }
-    .census-chart { display: flex; align-items: flex-end; gap: 6px; height: 110px; margin-bottom: .6rem; }
-    .census-bar-wrap { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 4px; height: 100%; justify-content: flex-end; }
-    .census-bar { width: 100%; border-radius: 6px 6px 2px 2px; transition: height .4s ease; cursor: pointer; position: relative; }
-    .census-bar:hover { opacity: .85; }
-    .census-bar-val { font-size: .65rem; font-weight: 700; color: #1e293b; }
-    .census-bar-lbl { font-size: .62rem; color: #94a3b8; font-weight: 600; }
-    .census-month-tabs { display: flex; gap: 6px; margin-bottom: .75rem; }
-    .census-month-tab { padding: 4px 12px; border-radius: 8px; font-size: .72rem; font-weight: 600; border: 1px solid #e2e8f0; background: #fff; color: #475569; cursor: pointer; transition: all .2s; }
+    .census-timeline { overflow-x: auto; padding-bottom: 4px; margin-bottom: .4rem; }
+    .census-chart { display: flex; align-items: flex-end; gap: 4px; height: 130px; min-width: fit-content; }
+    .census-bar-wrap { width: 44px; min-width: 44px; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; justify-content: flex-end; cursor: pointer; }
+    .census-bar-wrap:hover .census-bar-stack { opacity: .85; }
+    .census-bar-stack { width: 100%; display: flex; flex-direction: column-reverse; border-radius: 5px 5px 2px 2px; overflow: hidden; transition: height .4s ease; }
+    .census-seg { width: 100%; transition: height .3s; }
+    .census-bar-val { font-size: .6rem; font-weight: 700; color: #1e293b; }
+    .census-bar-lbl { font-size: .58rem; color: #94a3b8; font-weight: 600; }
+    .census-bar-chg { font-size: .55rem; font-weight: 700; height: 14px; line-height: 14px; }
+    .census-bar-chg.up { color: #16a34a; } .census-bar-chg.down { color: #ef4444; } .census-bar-chg.flat { color: #94a3b8; }
+    .census-month-tabs { display: flex; gap: 6px; margin-bottom: .75rem; flex-wrap: wrap; }
+    .census-month-tab { padding: 4px 10px; border-radius: 8px; font-size: .68rem; font-weight: 600; border: 1px solid #e2e8f0; background: #fff; color: #475569; cursor: pointer; transition: all .2s; }
     .census-month-tab.active { background: #007AFF; color: #fff; border-color: #007AFF; }
     .census-daily-chart { display: flex; align-items: flex-end; gap: 2px; height: 90px; margin-bottom: .4rem; overflow-x: auto; }
     .census-daily-bar { min-width: 8px; flex: 1; border-radius: 3px 3px 1px 1px; background: #007AFF; transition: height .3s; cursor: pointer; position: relative; }
@@ -842,11 +846,12 @@ function renderCensus(d) {
   const card = document.getElementById('census-card');
   const content = document.getElementById('census-content');
   const period = document.getElementById('census-period');
-
-  // Period label
   const months = d.monthly;
+  const mn = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  const pm = d.payer_mix || { medicare_pct: 0, medicaid_pct: 0, other_pct: 100 };
+
   if (months.length > 0) {
-    const fmt = m => { const [y,mo] = m.split('-'); const names=['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']; return names[+mo]+' '+y; };
+    const fmt = m => { const [y,mo] = m.split('-'); return mn[+mo]+' '+y; };
     period.textContent = fmt(months[0].month) + ' – ' + fmt(months[months.length-1].month);
   }
 
@@ -859,39 +864,84 @@ function renderCensus(d) {
   html += '<div class="fin-box"><div class="fin-box-lbl">Occupancy</div><div class="fin-box-val' + (d.occupancy_pct && d.occupancy_pct < 70 ? ' red' : '') + '">' + (d.occupancy_pct ? d.occupancy_pct + '%' : '–') + '</div></div>';
   html += '</div>';
 
-  // Monthly bar chart
-  const maxCensus = Math.max(...months.map(m => m.max || m.avg_census));
-  html += '<div class="fin-payer-label">Monthly Census Trend</div>';
-  html += '<div class="census-chart">';
-  const monthNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
-  months.forEach(m => {
-    const pct = maxCensus > 0 ? (m.avg_census / maxCensus * 100) : 0;
+  // Stacked monthly timeline
+  const maxCensus = Math.max(...months.map(m => m.avg_census));
+  html += '<div class="fin-payer-label">Monthly Census by Payer Type</div>';
+  html += '<div class="census-timeline"><div class="census-chart">';
+
+  months.forEach((m, i) => {
+    const avg = m.avg_census;
+    const barH = maxCensus > 0 ? Math.max(avg / maxCensus * 100, 8) : 8;
     const [y, mo] = m.month.split('-');
-    const label = monthNames[+mo];
-    const occPct = d.num_beds ? Math.round(m.avg_census * 100 / d.num_beds) : null;
-    const color = occPct !== null ? (occPct >= 85 ? '#16a34a' : occPct >= 70 ? '#f59e0b' : '#ef4444') : '#007AFF';
-    html += '<div class="census-bar-wrap" onclick="loadDailyModal(\'' + m.month + '\')">';
-    html += '<div class="census-bar-val">' + m.avg_census + '</div>';
-    html += '<div class="census-bar" style="height:' + Math.max(pct, 8) + '%;background:' + color + '" title="' + label + ': avg ' + m.avg_census + ', range ' + m.min + '–' + m.max + '"></div>';
-    html += '<div class="census-bar-lbl">' + label + '</div>';
+    const label = mn[+mo];
+    const yr = y.slice(2);
+
+    // Estimated payer counts
+    const estMedicare = Math.round(avg * pm.medicare_pct / 100);
+    const estMedicaid = Math.round(avg * pm.medicaid_pct / 100);
+    const estOther = Math.round(avg - estMedicare - estMedicaid);
+
+    // Segment heights (proportional within bar)
+    const segMedicare = avg > 0 ? (estMedicare / avg * 100) : 0;
+    const segMedicaid = avg > 0 ? (estMedicaid / avg * 100) : 0;
+    const segOther = avg > 0 ? (estOther / avg * 100) : 0;
+
+    // Change indicator
+    let chgHtml = '<div class="census-bar-chg flat">&nbsp;</div>';
+    if (i > 0) {
+      const prev = months[i-1].avg_census;
+      if (prev > 0) {
+        const chg = ((avg - prev) / prev * 100).toFixed(1);
+        if (+chg > 0) chgHtml = '<div class="census-bar-chg up">+' + chg + '%</div>';
+        else if (+chg < 0) chgHtml = '<div class="census-bar-chg down">' + chg + '%</div>';
+        else chgHtml = '<div class="census-bar-chg flat">0%</div>';
+      }
+    }
+
+    const tip = label + ' ' + y + ': ' + avg + ' avg (Medicare ~' + estMedicare + ', Medicaid ~' + estMedicaid + ', Other ~' + estOther + ')';
+
+    html += '<div class="census-bar-wrap" onclick="loadDailyModal(\'' + m.month + '\')" title="' + tip + '">';
+    html += '<div class="census-bar-val">' + Math.round(avg) + '</div>';
+    html += '<div class="census-bar-stack" style="height:' + barH + '%">';
+    if (segOther > 0) html += '<div class="census-seg" style="height:' + segOther + '%;background:#10b981"></div>';
+    if (segMedicaid > 0) html += '<div class="census-seg" style="height:' + segMedicaid + '%;background:#0ea5e9"></div>';
+    if (segMedicare > 0) html += '<div class="census-seg" style="height:' + segMedicare + '%;background:#6366f1"></div>';
+    html += '</div>';
+    html += '<div class="census-bar-lbl">' + label + '<br>' + yr + '</div>';
+    html += chgHtml;
     html += '</div>';
   });
-  html += '</div>';
-  html += '<div style="font-size:.68rem;color:#94a3b8;margin-bottom:1rem">Click a month to see daily detail</div>';
+  html += '</div></div>';
+  html += '<div style="font-size:.68rem;color:#94a3b8;margin-bottom:.75rem">Click any month for daily detail</div>';
 
-  // Payer mix (if available)
-  if (d.payer_mix) {
-    const pm = d.payer_mix;
-    html += '<div class="fin-payer-label">Payer Mix (from Cost Reports)</div>';
-    html += '<div class="fin-payer-bar">';
-    if (pm.medicare_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.medicare_pct + '%;background:#6366f1">' + (pm.medicare_pct > 8 ? pm.medicare_pct + '%' : '') + '</div>';
-    if (pm.medicaid_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.medicaid_pct + '%;background:#0ea5e9">' + (pm.medicaid_pct > 8 ? pm.medicaid_pct + '%' : '') + '</div>';
-    if (pm.other_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.other_pct + '%;background:#10b981">' + (pm.other_pct > 8 ? pm.other_pct + '%' : '') + '</div>';
-    html += '</div>';
-    html += '<div class="fin-payer-legend">';
-    html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#6366f1"></div>Medicare ' + pm.medicare_pct + '%</div>';
-    html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#0ea5e9"></div>Medicaid ' + pm.medicaid_pct + '%</div>';
-    html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#10b981"></div>Private/Other ' + pm.other_pct + '%</div>';
+  // Payer legend with estimated counts
+  html += '<div class="fin-payer-label">Estimated Payer Breakdown</div>';
+  const avgC = d.avg_census;
+  html += '<div class="fin-payer-bar">';
+  if (pm.medicare_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.medicare_pct + '%;background:#6366f1">' + (pm.medicare_pct > 8 ? Math.round(avgC * pm.medicare_pct / 100) : '') + '</div>';
+  if (pm.medicaid_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.medicaid_pct + '%;background:#0ea5e9">' + (pm.medicaid_pct > 8 ? Math.round(avgC * pm.medicaid_pct / 100) : '') + '</div>';
+  if (pm.other_pct > 3) html += '<div class="fin-payer-seg" style="width:' + pm.other_pct + '%;background:#10b981">' + (pm.other_pct > 8 ? Math.round(avgC * pm.other_pct / 100) : '') + '</div>';
+  html += '</div>';
+  html += '<div class="fin-payer-legend">';
+  html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#6366f1"></div>Medicare ~' + Math.round(avgC * pm.medicare_pct / 100) + '/day (' + pm.medicare_pct + '%)</div>';
+  html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#0ea5e9"></div>Medicaid ~' + Math.round(avgC * pm.medicaid_pct / 100) + '/day (' + pm.medicaid_pct + '%)</div>';
+  html += '<div class="fin-legend-item"><div class="fin-legend-dot" style="background:#10b981"></div>Private ~' + Math.round(avgC * pm.other_pct / 100) + '/day (' + pm.other_pct + '%)</div>';
+  html += '</div>';
+
+  // Overall trend summary
+  if (months.length >= 3) {
+    const first3 = months.slice(0, 3).reduce((s, m) => s + m.avg_census, 0) / 3;
+    const last3 = months.slice(-3).reduce((s, m) => s + m.avg_census, 0) / 3;
+    const trend = ((last3 - first3) / first3 * 100).toFixed(1);
+    const dir = +trend > 0 ? 'increased' : +trend < 0 ? 'decreased' : 'stayed flat';
+    const color = +trend > 0 ? '#16a34a' : +trend < 0 ? '#ef4444' : '#94a3b8';
+    html += '<div class="fin-summary" style="margin-top:.85rem">';
+    html += 'Census <strong style="color:' + color + '">' + dir + ' ' + Math.abs(+trend) + '%</strong> over this period';
+    html += ' (from ~' + Math.round(first3) + ' to ~' + Math.round(last3) + ' avg daily residents).';
+    if (d.payer_mix) {
+      html += ' Estimated <strong style="color:#6366f1">~' + Math.round(last3 * pm.medicare_pct / 100) + ' Medicare</strong>';
+      html += ' and <strong style="color:#0ea5e9">~' + Math.round(last3 * pm.medicaid_pct / 100) + ' Medicaid</strong> patients per day.';
+    }
     html += '</div>';
   }
 
@@ -908,17 +958,20 @@ async function loadDailyModal(month) {
     if (!d.available || !d.days.length) return;
 
     const monthNames = ['','January','February','March','April','May','June','July','August','September','October','November','December'];
+    const shortNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
     const [year, mo] = month.split('-');
     const title = monthNames[+mo] + ' ' + year + ' — Daily Census';
 
-    // Month tabs
+    // Month tabs (show year when it changes)
     let html = '<div class="census-month-tabs">';
     if (_censusData && _censusData.monthly) {
-      const shortNames = ['','Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      let lastYr = '';
       _censusData.monthly.forEach(m => {
-        const [, mmo] = m.month.split('-');
+        const [myr, mmo] = m.month.split('-');
         const active = m.month === month ? ' active' : '';
-        html += '<button class="census-month-tab' + active + '" onclick="loadDailyModal(\'' + m.month + '\')">' + shortNames[+mmo] + '</button>';
+        const yrLabel = myr !== lastYr ? ' \'' + myr.slice(2) : '';
+        lastYr = myr;
+        html += '<button class="census-month-tab' + active + '" onclick="loadDailyModal(\'' + m.month + '\')">' + shortNames[+mmo] + yrLabel + '</button>';
       });
     }
     html += '</div>';
@@ -951,9 +1004,9 @@ async function loadDailyModal(month) {
       const estOther = avg - estMedicare - estMedicaid;
       html += '<div class="fin-summary" style="margin-top:1rem">';
       html += '<strong>Estimated daily payer breakdown</strong> (based on annual cost report mix)<br>';
-      html += 'Medicare: ~' + estMedicare + ' residents (' + pm.medicare_pct + '%) · ';
-      html += 'Medicaid: ~' + estMedicaid + ' residents (' + pm.medicaid_pct + '%) · ';
-      html += 'Private/Other: ~' + estOther + ' residents (' + pm.other_pct + '%)';
+      html += '<span style="color:#6366f1;font-weight:700">Medicare: ~' + estMedicare + '</span> · ';
+      html += '<span style="color:#0ea5e9;font-weight:700">Medicaid: ~' + estMedicaid + '</span> · ';
+      html += '<span style="color:#10b981;font-weight:700">Private: ~' + estOther + '</span> residents';
       html += '</div>';
     }
 
